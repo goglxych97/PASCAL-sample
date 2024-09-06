@@ -4,6 +4,7 @@ from PyQt5.QtWidgets import QApplication
 from mainwindow import MainWindow
 from uploadscreen import UploadScreen
 
+
 def main():
     """
     Entry point for the application. Sets up the application, upload screen, 
@@ -16,7 +17,6 @@ def main():
     def launch_main_window(nifti_file_path, shape):
         """
         Launch the main window after a NIfTI file is loaded.
-        
         :param nifti_file_path: Path to the loaded NIfTI file
         :param shape: Shape of the NIfTI image
         """
@@ -29,7 +29,9 @@ def main():
     upload_screen.nifti_loaded.connect(launch_main_window)
     upload_screen.show()
 
+    # Start the event loop
     sys.exit(app.exec_())
+
 
 if __name__ == "__main__":
     main()

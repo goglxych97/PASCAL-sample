@@ -217,7 +217,7 @@ class Canvas(QLabel):
         self.current_slice_index = self.nifti_data.shape[2] // 2
         self.update_slice()  # Update the slice display
 
-        # Adjust the size of the canvas to fit the new NIfTI file
+        # Adjust the size of the canvas
         new_width = min(self.nifti_data.shape[1], 800)
         new_height = min(self.nifti_data.shape[0], 800)
         self.setFixedSize(new_width, new_height)

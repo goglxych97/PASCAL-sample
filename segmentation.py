@@ -7,16 +7,16 @@ def calculate_brush_radius(brush_size, image_width, image_height, matrix_width, 
     """
     Calculate the scaled brush radius for consistent drawing and rendering.
     """
-    scale_x = image_width / matrix_width  # Scale factor for width
-    scale_y = image_height / matrix_height  # Scale factor for height
+    scale_x = image_width / matrix_width
+    scale_y = image_height / matrix_height
 
-    # Return the adjusted brush radius based on minimum scaling factor
+    # Return the adjusted brush radius
     return int(brush_size * min(scale_x, scale_y) / 3)
+
 
 def bresenham_line(x0, y0, x1, y1):
     """
     Generate points between two coordinates using Bresenham's line algorithm.
-    
     :return: List of (x, y) points between the start and end points
     """
     points = []
@@ -40,6 +40,7 @@ def bresenham_line(x0, y0, x1, y1):
     
     return points
 
+
 def update_annotation_matrix(annotation_matrix, last_pos, pos, brush_size, background_image, current_slice_index):
     """
     Update the annotation matrix by drawing a line between two points.
@@ -47,8 +48,11 @@ def update_annotation_matrix(annotation_matrix, last_pos, pos, brush_size, backg
     if annotation_matrix is not None:
         # Calculate brush radius for consistent rendering
         brush_radius = calculate_brush_radius(
-            brush_size, background_image.width(), background_image.height(),
-            annotation_matrix.shape[1], annotation_matrix.shape[0]
+            brush_size,
+            background_image.width(),
+            background_image.height(),
+            annotation_matrix.shape[1],
+            annotation_matrix.shape[0]
         )
 
         # Convert positions to matrix coordinates
@@ -71,6 +75,7 @@ def update_annotation_matrix(annotation_matrix, last_pos, pos, brush_size, backg
                         if (x_offset**2 + y_offset**2) <= brush_radius**2:
                             annotation_matrix[y, x, current_slice_index] = 1
 
+
 def render_annotation_from_matrix(annotation_image, annotation_matrix, pen_color, brush_size, current_slice_index):
     """
     Render the annotations from the matrix onto the annotation image.
@@ -83,7 +88,11 @@ def render_annotation_from_matrix(annotation_image, annotation_matrix, pen_color
 
         # Calculate scaled brush radius for rendering
         brush_radius_scaled = calculate_brush_radius(
-            brush_size, annotation_image.width(), annotation_image.height(), width, height
+            brush_size,
+            annotation_image.width(),
+            annotation_image.height(),
+            width,
+            height
         )
 
         painter = QPainter(annotation_image)
@@ -96,6 +105,11 @@ def render_annotation_from_matrix(annotation_image, annotation_matrix, pen_color
                 if slice_segmentation[y, x] == 1:  # If annotated
                     screen_x = int(x * annotation_image.width() / width)
                     screen_y = int(y * annotation_image.height() / height)
-                    painter.drawEllipse(screen_x - brush_radius_scaled, screen_y - brush_radius_scaled, brush_radius_scaled * 2, brush_radius_scaled * 2)
+                    painter.drawEllipse(
+                        screen_x - brush_radius_scaled,
+                        screen_y - brush_radius_scaled,
+                        brush_radius_scaled * 2,
+                        brush_radius_scaled * 2
+                    )
 
         painter.end()
