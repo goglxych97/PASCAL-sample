@@ -7,7 +7,7 @@ from PyQt5.QtGui import QDragEnterEvent, QDropEvent
 
 class UploadScreen(QWidget):
     # Signal to emit the file path and shape when a NIfTI file is loaded
-    nifti_loaded = pyqtSignal(str, tuple)
+    nifti_loaded = pyqtSignal(str)
 
     def __init__(self):
         """
@@ -54,7 +54,7 @@ class UploadScreen(QWidget):
         nifti_img = nib.load(file_path)
         nifti_data = nifti_img.get_fdata()
         shape = nifti_data.shape
-        self.nifti_loaded.emit(file_path, shape)
+        self.nifti_loaded.emit(file_path)
 
 
     def dragEnterEvent(self, event: QDragEnterEvent):

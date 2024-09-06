@@ -14,7 +14,7 @@ def main():
     upload_screen = UploadScreen()  # Create the upload screen instance
     main_window = None  # Placeholder for the main window
 
-    def launch_main_window(nifti_file_path, shape):
+    def launch_main_window(nifti_file_path):
         """
         Launch the main window after a NIfTI file is loaded.
         :param nifti_file_path: Path to the loaded NIfTI file
@@ -22,7 +22,7 @@ def main():
         """
         global main_window
         upload_screen.close()
-        main_window = MainWindow(nifti_file_path, shape)
+        main_window = MainWindow(nifti_file_path)
         main_window.show()
 
     # Connect the signal from upload screen to the function that launches the main window

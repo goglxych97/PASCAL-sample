@@ -24,7 +24,8 @@ class Canvas(QLabel):
         self.annotation_image = QImage(width, height, QImage.Format_ARGB32)
         self.annotation_image.fill(Qt.transparent)
         self.pen_color = QColor(255, 0, 0, 255)
-        self.brush_size = 10
+        self.brush_size = 8
+        self.brush_color_value = 1
         self.setPixmap(QPixmap.fromImage(self.background_image))
         self.last_point = QPoint()
         self.drawing = False
@@ -47,10 +48,18 @@ class Canvas(QLabel):
     def set_brush_size(self, size):
         """
         Set the size of the brush used for drawing annotations.
-        :param size: Integer representing the brush size
+        :param size: Integer representing the brush size in pixels
         """
         self.brush_size = size
+        if self.nifti_data is not None:
+            self.update_slice()
 
+    def set_brush_color_value(self, color_value):
+        """
+        Set the color of the brush used for drawing annotations.
+        :param color_value: Integer representing the new pen color
+        """
+        self.brush_color_value = color_value
 
     def mousePressEvent(self, event):
         """
@@ -58,21 +67,12 @@ class Canvas(QLabel):
         :param event: QMouseEvent object
         """
         if event.button() == Qt.LeftButton:
-            self.last_point = event.pos() # Store the starting point
-            self.drawing = True # Set drawing flag to True
-            self.draw_on_canvas(event.pos()) # Draw on the canvas
+            self.last_point = event.pos()  # Store the starting point
+            self.drawing = True  # Set drawing flag to True
 
-            # Update annotation matrix
-            update_annotation_matrix( 
-                self.annotation_matrix,
-                self.last_point,
-                event.pos(),
-                self.brush_size,
-                self.background_image,
-                self.current_slice_index
-            )
-
-            self.last_point = event.pos() # Update last point
+            # 주석을 그리고 업데이트
+            self.draw_annotation(event.pos())
+            self.last_point = event.pos()  # Update last point
 
 
     def mouseMoveEvent(self, event):
@@ -81,19 +81,9 @@ class Canvas(QLabel):
         :param event: QMouseEvent object
         """
         if event.buttons() & Qt.LeftButton and self.drawing:
-            self.draw_on_canvas(event.pos()) # Draw on the canvas
-
-            # Update annotation matrix
-            update_annotation_matrix(
-                self.annotation_matrix,
-                self.last_point,
-                event.pos(),
-                self.brush_size,
-                self.background_image,
-                self.current_slice_index
-            )
-
-            self.last_point = event.pos() # Update last point
+            # 주석을 그리고 업데이트
+            self.draw_annotation(event.pos())
+            self.last_point = event.pos()  # Update last point
 
 
     def mouseReleaseEvent(self, event):
@@ -105,20 +95,35 @@ class Canvas(QLabel):
             self.drawing = False
 
 
-    def draw_on_canvas(self, pos):
+    # canvas.py
+
+    def draw_annotation(self, pos):
         """
-        Draw a line on the canvas between the last point and the current position.
+        Update the annotation matrix and render it to the canvas.
         :param pos: QPoint representing the current position
         """
-        canvas_pixmap = self.pixmap().copy() # Copy the current pixmap
+        # Update annotation matrix with the color value
+        update_annotation_matrix(
+            self.annotation_matrix,
+            self.last_point,
+            pos,
+            self.brush_size,
+            self.background_image,
+            self.current_slice_index,
+            self.brush_color_value  # Pass the color value for annotation
+        )
 
-        painter = QPainter(canvas_pixmap)
-        pen = QPen(self.pen_color, self.brush_size, Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin)
-        painter.setPen(pen)
-        painter.drawLine(self.last_point, pos)
-        painter.end()
+        # Render the updated annotation matrix
+        render_annotation_from_matrix(
+            self.annotation_image,
+            self.annotation_matrix,
+            self.pen_color,
+            self.brush_size,
+            self.current_slice_index
+        )
 
-        self.setPixmap(canvas_pixmap) # Update the canvas pixmap
+        self.update_display()  # Update the canvas display
+
 
 
     def wheelEvent(self, event):
@@ -203,7 +208,6 @@ class Canvas(QLabel):
                 self.set_background_image_from_nifti(file_path)
             break
 
-
     def set_background_image_from_nifti(self, file_path):
         """
         Load a NIfTI file and set the background image to the middle slice.
@@ -213,16 +217,26 @@ class Canvas(QLabel):
         self.nifti_data = nifti_img.get_fdata()
         self.nifti_affine = nifti_img.affine
         self.nifti_header = nifti_img.header
-        self.annotation_matrix = np.zeros_like(self.nifti_data)  # Initialize the segmentation matrix
+        self.annotation_matrix = np.zeros_like(self.nifti_data, dtype=np.int32)  # Initialize the segmentation matrix as int
         self.current_slice_index = self.nifti_data.shape[2] // 2
         self.update_slice()  # Update the slice display
 
         # Adjust the size of the canvas
-        new_width = min(self.nifti_data.shape[1], 800)
-        new_height = min(self.nifti_data.shape[0], 800)
+        new_width = max(self.nifti_data.shape[1], 540)
+        new_height = max(self.nifti_data.shape[0], 540)
         self.setFixedSize(new_width, new_height)
 
-        # Adjust the main window size
-        if self.parent():
-            parent_window = self.parent()
-            parent_window.setFixedSize(new_width + 100, new_height + 150)
+    # canvas.py
+
+    def clear_all_annotations(self):
+        """
+        Clear all annotations and reset the annotation matrix to zeros.
+        """
+        if self.annotation_matrix is not None:
+            self.annotation_matrix.fill(0)  # Reset all values in annotation matrix to zero
+            print("All annotations cleared.")  # 디버그용 출력
+
+        # Clear the annotation image and update display
+        self.annotation_image.fill(Qt.transparent)
+        self.update_display()
+

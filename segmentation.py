@@ -1,18 +1,7 @@
 # segmentation.py
 from PyQt5.QtCore import Qt
-from PyQt5.QtGui import QPainter, QBrush
-
-
-def calculate_brush_radius(brush_size, image_width, image_height, matrix_width, matrix_height):
-    """
-    Calculate the scaled brush radius for consistent drawing and rendering.
-    """
-    scale_x = image_width / matrix_width
-    scale_y = image_height / matrix_height
-
-    # Return the adjusted brush radius
-    return int(brush_size * min(scale_x, scale_y) / 3)
-
+from PyQt5.QtGui import QPainter, QPen
+from PyQt5.QtGui import QColor
 
 def bresenham_line(x0, y0, x1, y1):
     """
@@ -41,40 +30,9 @@ def bresenham_line(x0, y0, x1, y1):
     return points
 
 
-def update_annotation_matrix(annotation_matrix, last_pos, pos, brush_size, background_image, current_slice_index):
-    """
-    Update the annotation matrix by drawing a line between two points.
-    """
-    if annotation_matrix is not None:
-        # Calculate brush radius for consistent rendering
-        brush_radius = calculate_brush_radius(
-            brush_size,
-            background_image.width(),
-            background_image.height(),
-            annotation_matrix.shape[1],
-            annotation_matrix.shape[0]
-        )
+# segmentation.py
 
-        # Convert positions to matrix coordinates
-        x0 = int(last_pos.x() * annotation_matrix.shape[1] / background_image.width())
-        y0 = int(last_pos.y() * annotation_matrix.shape[0] / background_image.height())
-        x1 = int(pos.x() * annotation_matrix.shape[1] / background_image.width())
-        y1 = int(pos.y() * annotation_matrix.shape[0] / background_image.height())
-
-        # Generate points using Bresenham's line algorithm
-        line_points = bresenham_line(x0, y0, x1, y1)
-
-        # Update the annotation matrix with brush effect
-        for x_center, y_center in line_points:
-            for y_offset in range(-brush_radius, brush_radius + 1):
-                for x_offset in range(-brush_radius, brush_radius + 1):
-                    x = x_center + x_offset
-                    y = y_center + y_offset
-                    if 0 <= x < annotation_matrix.shape[1] and 0 <= y < annotation_matrix.shape[0]:
-                        # Apply circular brush effect
-                        if (x_offset**2 + y_offset**2) <= brush_radius**2:
-                            annotation_matrix[y, x, current_slice_index] = 1
-
+from PyQt5.QtGui import QPainter, QPen, QColor
 
 def render_annotation_from_matrix(annotation_image, annotation_matrix, pen_color, brush_size, current_slice_index):
     """
@@ -86,30 +44,79 @@ def render_annotation_from_matrix(annotation_image, annotation_matrix, pen_color
         slice_segmentation = annotation_matrix[:, :, current_slice_index]
         height, width = slice_segmentation.shape
 
-        # Calculate scaled brush radius for rendering
-        brush_radius_scaled = calculate_brush_radius(
-            brush_size,
-            annotation_image.width(),
-            annotation_image.height(),
-            width,
-            height
-        )
+        # Define color mapping
+        color_map = {
+            1: QColor('red'),
+            2: QColor('green'),
+            3: QColor('blue'),
+            4: QColor('yellow'),
+            5: QColor('skyblue'),
+            6: QColor('purple')
+        }
 
         painter = QPainter(annotation_image)
-        painter.setPen(Qt.NoPen)
-        painter.setBrush(QBrush(pen_color))
 
-        # Draw annotations as ellipses for each point
+        # Draw paths connecting each point
         for y in range(height):
             for x in range(width):
-                if slice_segmentation[y, x] == 1:  # If annotated
+                color_value = slice_segmentation[y, x]
+                if color_value in color_map:  # Ensure the value has a corresponding color
+                    pen_color = color_map[color_value]
+                    painter.setPen(QPen(pen_color, 1, Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin))
                     screen_x = int(x * annotation_image.width() / width)
                     screen_y = int(y * annotation_image.height() / height)
-                    painter.drawEllipse(
-                        screen_x - brush_radius_scaled,
-                        screen_y - brush_radius_scaled,
-                        brush_radius_scaled * 2,
-                        brush_radius_scaled * 2
-                    )
+
+                    # Check the 8 directions around the current pixel and connect only if the distance is 1 pixel
+                    for dx in [-1, 0, 1]:
+                        for dy in [-1, 0, 1]:
+                            if dx == 0 and dy == 0:
+                                continue  # Skip itself
+                            nx, ny = x + dx, y + dy
+                            if (
+                                0 <= nx < width and 0 <= ny < height and
+                                slice_segmentation[ny, nx] == color_value  # Only connect pixels with the same color
+                            ):
+                                neighbor_screen_x = int(nx * annotation_image.width() / width)
+                                neighbor_screen_y = int(ny * annotation_image.height() / height)
+                                painter.drawLine(screen_x, screen_y, neighbor_screen_x, neighbor_screen_y)
 
         painter.end()
+
+# segmentation.py
+
+# segmentation.py
+
+# segmentation.py
+
+def update_annotation_matrix(annotation_matrix, last_pos, pos, brush_size, background_image, current_slice_index, brush_color_value):
+    """
+    Update the annotation matrix by drawing a line between two points.
+    """
+    if annotation_matrix is not None:
+        # Convert positions to matrix coordinates
+        x0 = int(last_pos.x() * annotation_matrix.shape[1] / background_image.width())
+        y0 = int(last_pos.y() * annotation_matrix.shape[0] / background_image.height())
+        x1 = int(pos.x() * annotation_matrix.shape[1] / background_image.width())
+        y1 = int(pos.y() * annotation_matrix.shape[0] / background_image.height())
+
+        # Generate points using Bresenham's line algorithm
+        line_points = bresenham_line(x0, y0, x1, y1)
+
+        # Update the annotation matrix with the color value or clear
+        brush_radius = brush_size // 2  # Calculate the radius using the brush size itself
+        for x_center, y_center in line_points:
+            for y_offset in range(-brush_radius, brush_radius + 1):
+                for x_offset in range(-brush_radius, brush_radius + 1):
+                    x = x_center + x_offset
+                    y = y_center + y_offset
+                    if 0 <= x < annotation_matrix.shape[1] and 0 <= y < annotation_matrix.shape[0]:
+                        # Apply circular brush effect
+                        if (x_offset**2 + y_offset**2) <= brush_radius**2:
+                            if brush_color_value == 0:
+                                # Clear the annotation at this point
+                                annotation_matrix[y, x, current_slice_index] = 0
+                                print(f"Cleared annotation at ({y}, {x}, {current_slice_index})")
+                            else:
+                                # Overwrite with the new color value and ensure it is stored as an integer
+                                annotation_matrix[y, x, current_slice_index] = int(brush_color_value)
+                                print(f"Updated annotation matrix at ({y}, {x}, {current_slice_index}) to {brush_color_value}")  # 디버그용 출력
