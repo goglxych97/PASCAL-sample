@@ -1,32 +1,26 @@
-#canvas.py
+# canvas.py
+from functools import lru_cache
+from cache_utils import slice_cache
+from image_utils import normalize_image_data 
+from PyQt5.QtCore import Qt, QPoint, pyqtSignal
+from PyQt5.QtGui import QColor, QDragEnterEvent, QDropEvent, QImage, QPainter, QPixmap
+from PyQt5.QtWidgets import QLabel, QSizePolicy
+from segmentation import update_segmentation_matrix, render_segmentation_from_matrix
 import numpy as np
 import nibabel as nib
-from PyQt5.QtCore import Qt, QPoint, pyqtSignal
-from PyQt5.QtGui import QPainter, QPen, QColor, QImage, QPixmap, QDragEnterEvent, QDropEvent
-from PyQt5.QtWidgets import QLabel
-from segmentation import update_annotation_matrix, render_annotation_from_matrix
-
 
 class Canvas(QLabel):
-    # Signal to notify when the current slice index changes
     slice_changed = pyqtSignal(int)
 
-    def __init__(self, width, height):
-        """
-        Initialize the Canvas widget.
-        :param width: Width of the canvas
-        :param height: Height of the canvas
-        """
+    def __init__(self):
         super().__init__()
-        self.setFixedSize(width, height)
-        self.background_image = QImage(width, height, QImage.Format_ARGB32)
-        self.background_image.fill(Qt.white)
-        self.annotation_image = QImage(width, height, QImage.Format_ARGB32)
-        self.annotation_image.fill(Qt.transparent)
-        self.pen_color = QColor(255, 0, 0, 255)
+        self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        self.setMinimumSize(540, 540)
+        self.background_image = None
+        self.segmentation_image = None
+        self.brush_color = QColor(255, 0, 0, 255)
         self.brush_size = 8
         self.brush_color_value = 1
-        self.setPixmap(QPixmap.fromImage(self.background_image))
         self.last_point = QPoint()
         self.drawing = False
         self.setAcceptDrops(True)
@@ -34,172 +28,168 @@ class Canvas(QLabel):
         self.nifti_affine = None
         self.nifti_header = None
         self.current_slice_index = 0
-        self.annotation_matrix = None
+        self.segmentation_matrix = None
 
 
-    def set_pen_color(self, color):
+    def resizeEvent(self, event):
         """
-        Set the color of the pen used for drawing annotations.
-        :param color: QColor object representing the new pen color
+        Handle resize events.
         """
-        self.pen_color = color
-
-
-    def set_brush_size(self, size):
-        """
-        Set the size of the brush used for drawing annotations.
-        :param size: Integer representing the brush size in pixels
-        """
-        self.brush_size = size
+        super().resizeEvent(event)
         if self.nifti_data is not None:
             self.update_slice()
 
-    def set_brush_color_value(self, color_value):
+    def set_background_image_from_nifti(self, file_path):
         """
-        Set the color of the brush used for drawing annotations.
-        :param color_value: Integer representing the new pen color
+        Load a NIfTI and set the background.
+        :param file_path: NIfTI file path
         """
-        self.brush_color_value = color_value
+        nifti_img = nib.load(file_path)
+        self.nifti_data = np.rot90(nib.as_closest_canonical(nifti_img).get_fdata(), k=1)[:, ::-1, :]
+        self.nifti_affine = nifti_img.affine
+        self.nifti_header = nifti_img.header
+        self.segmentation_matrix = np.zeros_like(self.nifti_data, dtype=np.int32)  # Initialize segmentation matrix
+        self.current_slice_index = self.nifti_data.shape[2] // 2
+
+        self.render_cached_slice.cache_clear()
+        self.render_cached_segmentation.cache_clear()
+        self.update_slice()
+
+    @lru_cache(maxsize=100)
+    def render_cached_slice(self, slice_index, size):
+        """
+        Render the cached slice image.
+        :param slice_index: Slice index
+        :param size: Desired size for scaling
+        :return: QImage of the rendered slice
+        """
+        slice_data = self.nifti_data[:, :, slice_index]
+        normalized_data = normalize_image_data(slice_data) # Normalize slice data
+        height, width = normalized_data.shape
+        bytes_per_line = width
+        qimage = QImage(normalized_data.tobytes(), width, height, bytes_per_line, QImage.Format_Grayscale8)  # Convert to QImage format and scale it
+
+        return qimage.scaled(size[0], size[1], Qt.KeepAspectRatio, Qt.SmoothTransformation)
+
+    @slice_cache(maxsize=100)
+    def render_cached_segmentation(self, slice_index, size):
+        """
+        Render the cached segmentation image.
+        :param slice_index: Slice index
+        :param size: Desired size for scaling
+        :return: QImage of the rendered segmentation
+        """
+        segmentation_image = QImage(size[0], size[1], QImage.Format_ARGB32)
+        segmentation_image.fill(Qt.transparent)
+
+        render_segmentation_from_matrix(
+            segmentation_image,
+            self.segmentation_matrix,
+            self.brush_color,
+            slice_index
+        )
+
+        return segmentation_image
+    
+    def update_slice(self):
+        """
+        Update the current slice display.
+        """
+        if self.nifti_data is None:
+            return 
+
+        size_tuple = (self.size().width(), self.size().height())
+        self.background_image = self.render_cached_slice(self.current_slice_index, size_tuple)
+        self.segmentation_image = self.render_cached_segmentation(self.current_slice_index, size_tuple)
+        self.update_display() 
+
+    def update_display(self):
+        """
+        Combine the background and segmentation and update the canvas display.
+        """
+        if self.background_image is None or self.segmentation_image is None:
+            return
+
+        combined_image = QImage(self.size(), QImage.Format_ARGB32)  # New image for combining layers
+        combined_image.fill(Qt.transparent)
+        painter = QPainter(combined_image)
+        painter.drawImage(self.rect(), self.background_image)  # Draw scaling background
+        painter.drawImage(self.rect(), self.segmentation_image)  # Draw scaling segmentation
+        painter.end()  # End painting
+
+        self.setPixmap(QPixmap.fromImage(combined_image))  # Update canvas pixmap
 
     def mousePressEvent(self, event):
         """
-        Handle mouse press events to start drawing annotations.
+        Handle mouse press events.
         :param event: QMouseEvent object
         """
         if event.button() == Qt.LeftButton:
-            self.last_point = event.pos()  # Store the starting point
-            self.drawing = True  # Set drawing flag to True
-
-            # 주석을 그리고 업데이트
-            self.draw_annotation(event.pos())
-            self.last_point = event.pos()  # Update last point
-
+            self.last_point = self.translate_mouse_position(event.pos())  # Store starting point
+            self.drawing = True
+            self.draw_segmentation(event.pos())
+            self.last_point = self.translate_mouse_position(event.pos())  # Update last point
 
     def mouseMoveEvent(self, event):
         """
-        Handle mouse move events to draw annotations while the mouse moves.
+        Handle mouse move events.
         :param event: QMouseEvent object
         """
         if event.buttons() & Qt.LeftButton and self.drawing:
-            # 주석을 그리고 업데이트
-            self.draw_annotation(event.pos())
-            self.last_point = event.pos()  # Update last point
-
+            self.draw_segmentation(event.pos())
+            self.last_point = self.translate_mouse_position(event.pos())  # Update last point
 
     def mouseReleaseEvent(self, event):
         """
-        Handle mouse release events to stop drawing annotations.
+        Handle mouse release events.
         :param event: QMouseEvent object
         """
         if event.button() == Qt.LeftButton:
             self.drawing = False
 
-
-    # canvas.py
-
-    def draw_annotation(self, pos):
+    def translate_mouse_position(self, pos):
         """
-        Update the annotation matrix and render it to the canvas.
-        :param pos: QPoint representing the current position
+        Translate the mouse position.
+        :param pos: QPoint from mouse event
+        :return: Translated QPoint
         """
-        # Update annotation matrix with the color value
-        update_annotation_matrix(
-            self.annotation_matrix,
+        if self.background_image is None:
+            return pos
+        
+        x_ratio = self.background_image.width() / self.width()
+        y_ratio = self.background_image.height() / self.height()
+
+        return QPoint(int(pos.x() * x_ratio), int(pos.y() * y_ratio))
+
+    def draw_segmentation(self, pos):
+        """
+        Update the segmentation matrix and render it.
+        :param pos: Current position QPoint
+        """
+        pos = self.translate_mouse_position(pos)  # Translate position
+        update_segmentation_matrix(  # Update segmentation
+            self.segmentation_matrix,
             self.last_point,
             pos,
             self.brush_size,
             self.background_image,
             self.current_slice_index,
-            self.brush_color_value  # Pass the color value for annotation
+            self.brush_color_value
         )
-
-        # Render the updated annotation matrix
-        render_annotation_from_matrix(
-            self.annotation_image,
-            self.annotation_matrix,
-            self.pen_color,
-            self.brush_size,
-            self.current_slice_index
-        )
-
-        self.update_display()  # Update the canvas display
-
-
-
-    def wheelEvent(self, event):
-        """
-        Handle mouse wheel events for scrolling through image slices.
-        :param event: QWheelEvent object
-        """
-        if self.nifti_data is not None:
-            num_slices = self.nifti_data.shape[2]
-            delta = event.angleDelta().y() // 120 # Calculate scroll direction
-
-            new_index = self.current_slice_index + delta
-            if 0 <= new_index < num_slices:
-                self.current_slice_index = new_index
-                self.update_slice() # Update slice display
-
-                # Emit the slice_changed signal with the new index
-                self.slice_changed.emit(self.current_slice_index)
-
-
-    def update_slice(self):
-        """
-        Update the current slice display with the corresponding background and annotation images.
-        """
-        slice_data = self.nifti_data[:, :, self.current_slice_index]
-
-        # Normalize the slice data for display
-        normalized_data = 255 * (slice_data - np.min(slice_data)) / (np.max(slice_data) - np.min(slice_data))
-        normalized_data = normalized_data.astype(np.uint8)
-        height, width = normalized_data.shape
-        bytes_per_line = width
-
-        # Convert to QImage format
-        qimage = QImage(normalized_data.tobytes(), width, height, bytes_per_line, QImage.Format_Grayscale8)
-        self.background_image = qimage.scaled(self.width(), self.height())
-        self.annotation_image.fill(Qt.transparent)  # Clear the annotation image for the new slice
-
-        # Render the annotation matrix onto the annotation image
-        render_annotation_from_matrix(
-            self.annotation_image,
-            self.annotation_matrix,
-            self.pen_color,
-            self.brush_size,
-            self.current_slice_index
-        )
-
-        self.update_display() # Update the display
-
-
-    def update_display(self):
-        """
-        Combine the background and annotation images and update the canvas display.
-        """
-        combined_image = QImage(self.size(), QImage.Format_ARGB32)  # Create a new image for combining layers
-        combined_image.fill(Qt.transparent)
-
-        painter = QPainter(combined_image)
-        painter.drawImage(0, 0, self.background_image)  # Draw background image
-        painter.drawImage(0, 0, self.annotation_image)  # Overlay annotation image
-        painter.end()  # End painting
-
-        self.setPixmap(QPixmap.fromImage(combined_image))  # Update the canvas pixmap
-
+        self.render_cached_segmentation.cache_clear()  # Clear cached segmentation
+        self.update_slice()
 
     def dragEnterEvent(self, event: QDragEnterEvent):
         """
-        Handle drag enter events to accept NIfTI file drops.
+        Handle drag enter events.
         :param event: QDragEnterEvent object
         """
         if event.mimeData().hasUrls():
             event.acceptProposedAction()
 
-
     def dropEvent(self, event: QDropEvent):
         """
-        Handle drop events to load NIfTI files.
+        Handle drop events.
         :param event: QDropEvent object
         """
         for url in event.mimeData().urls():
@@ -208,35 +198,51 @@ class Canvas(QLabel):
                 self.set_background_image_from_nifti(file_path)
             break
 
-    def set_background_image_from_nifti(self, file_path):
+    def set_brush_color(self, color):
         """
-        Load a NIfTI file and set the background image to the middle slice.
-        :param file_path: Path to the NIfTI file
+        Set the color of the brush.
+        :param color: QColor object for the color
         """
-        nifti_img = nib.load(file_path)
-        self.nifti_data = nifti_img.get_fdata()
-        self.nifti_affine = nifti_img.affine
-        self.nifti_header = nifti_img.header
-        self.annotation_matrix = np.zeros_like(self.nifti_data, dtype=np.int32)  # Initialize the segmentation matrix as int
-        self.current_slice_index = self.nifti_data.shape[2] // 2
-        self.update_slice()  # Update the slice display
+        self.brush_color = color
 
-        # Adjust the size of the canvas
-        new_width = max(self.nifti_data.shape[1], 540)
-        new_height = max(self.nifti_data.shape[0], 540)
-        self.setFixedSize(new_width, new_height)
-
-    # canvas.py
-
-    def clear_all_annotations(self):
+    def set_brush_size(self, size):
         """
-        Clear all annotations and reset the annotation matrix to zeros.
+        Set the size of the brush.
+        :param size: Brush size in pixels
         """
-        if self.annotation_matrix is not None:
-            self.annotation_matrix.fill(0)  # Reset all values in annotation matrix to zero
-            print("All annotations cleared.")  # 디버그용 출력
+        self.brush_size = size
+        if self.nifti_data is not None:
+            self.update_slice()
 
-        # Clear the annotation image and update display
-        self.annotation_image.fill(Qt.transparent)
+    def set_brush_color_value(self, color_value):
+        """
+        Set the color value of the brush.
+        :param color_value: Integer for the brush (color) value
+        """
+        self.brush_color_value = color_value
+
+    def wheelEvent(self, event):
+        """
+        Handle mouse wheel events.
+        :param event: QWheelEvent object
+        """
+        if self.nifti_data is not None:
+            num_slices = self.nifti_data.shape[2]
+            delta = event.angleDelta().y() // 120
+
+            new_index = self.current_slice_index + delta
+            if 0 <= new_index < num_slices:
+                self.current_slice_index = new_index
+                self.update_slice()
+                self.slice_changed.emit(self.current_slice_index)  # Emit slice_changed signal with new index
+
+    def clear_all_segmentations(self):
+        """
+        Clear all segmentations and reset the segmentation matrix to zeros.
+        """
+        if self.segmentation_matrix is not None:
+            self.segmentation_matrix.fill(0)
+
+        self.render_cached_segmentation.cache_clear()  # Clear cached segmentation
+        self.segmentation_image.fill(Qt.transparent)
         self.update_display()
-
