@@ -86,7 +86,7 @@ class Canvas(QLabel):
             segmentation_image,
             self.segmentation_matrix,
             self.brush_color,
-            slice_index
+            slice_index,
         )
 
         return segmentation_image
@@ -176,8 +176,12 @@ class Canvas(QLabel):
             self.current_slice_index,
             self.brush_color_value
         )
-        self.render_cached_segmentation.cache_clear()  # Clear cached segmentation
-        self.update_slice()
+        self.render_cached_segmentation.cache_invalidate(self.current_slice_index)
+        size_tuple = (self.size().width(), self.size().height())
+        self.segmentation_image = self.render_cached_segmentation(self.current_slice_index, size_tuple)
+        self.update_display() 
+        #self.render_cached_segmentation.cache_clear()  # Clear cached segmentation
+        #self.update_slice()
 
     def dragEnterEvent(self, event: QDragEnterEvent):
         """
