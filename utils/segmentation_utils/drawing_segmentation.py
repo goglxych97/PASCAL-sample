@@ -1,47 +1,43 @@
-# segmentation.py
+# utils/segmentation_utils/drawing_segmentation.py
 from PyQt5.QtCore import Qt
-
 from scipy.ndimage import zoom
 import numpy as np
 
 def bresenham_line(x0, y0, x1, y1):
     """
     Generate points between two coordinates using Bresenham's line algorithm.
-    :param x0: Integer, x-coordinate of the start point
-    :param y0: Integer, y-coordinate of the start point
-    :param x1: Integer, x-coordinate of the end point
-    :param y1: Integer, y-coordinate of the end point
+    :param x0: Integer, x-coord of the start point
+    :param y0: Integer, y-coord of the start point
+    :param x1: Integer, x-coord of the end point
+    :param y1: Integer, y-coord of the end point
     :return: List of (x, y) points between the start and end points
     """
     points = []  # List to store all points
-    dx = abs(x1 - x0)  # Difference in x-coords
-    dy = abs(y1 - y0)  # Difference in y-coords
+    dx = abs(x1 - x0)  # Diff in x-coords
+    dy = abs(y1 - y0)  # Diff in y-coords
     sx = 1 if x0 < x1 else -1  # Step direction for x
     sy = 1 if y0 < y1 else -1  # Step direction for y
-    err = dx - dy  # Initialize the error term
+    err = dx - dy  # Init the error term
 
     while True:
         points.append((x0, y0))  # Add the point to the points list
         if x0 == x1 and y0 == y1:  # If end, break the loop
             break
         e2 = err * 2  # Calculate double the error term to determine the next step
-        # Adjust x-coordinate and error term
-        if e2 > -dy:
+        if e2 > -dy:  # Adjust x-coord and error term
             err -= dy  # Subtract dy from the error term
             x0 += sx
-        # Adjust y-coordinate and error term
-        if e2 < dx:
+        if e2 < dx:  # Adjust y-coord and error term
             err += dx  # Add dx to the error term
             y0 += sy
     
     return points
 
-def render_segmentation_from_matrix(segmentation_image, segmentation_matrix, brush_color, current_slice_index):
+def render_segmentation_from_matrix(segmentation_image, segmentation_matrix, current_slice_index):
     """
-    Render the segmentations from the matrix using numpy for faster performance.
+    Render the segmentations for faster performance.
     :param segmentation_image: QImage object to draw the segmentation
-    :param segmentation_matrix: 3D numpy array containing segmentation
-    :param brush_color: QColor object for the brush color
+    :param segmentation_matrix: Numpy array containing segmentation
     :param current_slice_index: Index for current slice to render
     """
     if segmentation_matrix is not None:
@@ -50,6 +46,7 @@ def render_segmentation_from_matrix(segmentation_image, segmentation_matrix, bru
         height, width = slice_segmentation.shape
 
         # Define color mapping using RGBA tuples
+        # R and B channels are inverted.
         color_map = {
             1: (0, 0, 255, 255),  # Red
             2: (0, 255, 0, 255),  # Green
@@ -72,28 +69,23 @@ def render_segmentation_from_matrix(segmentation_image, segmentation_matrix, bru
         for color_value, color in color_map.items():
             # Get the positions for this color value
             positions = np.argwhere(slice_segmentation == color_value)
-
             # Map to image coordinates and apply linear interpolation scaling
             if len(positions) > 0:
-                # Compute scaled coordinates using linear interpolation
-                screen_x = np.clip(np.round(positions[:, 1] * scale_x).astype(int), 0, segmentation_image.width() - 1)
-                screen_y = np.clip(np.round(positions[:, 0] * scale_y).astype(int), 0, segmentation_image.height() - 1)
-
+                # # Compute scaled coordinates using linear interpolation
+                # screen_x = np.clip(np.round(positions[:, 1] * scale_x).astype(int), 0, segmentation_image.width() - 1)
+                # screen_y = np.clip(np.round(positions[:, 0] * scale_y).astype(int), 0, segmentation_image.height() - 1)
                 # Create an empty mask for the color and set it in the zoomed image
                 mask = np.zeros((height, width), dtype=np.uint8)
                 mask[positions[:, 0], positions[:, 1]] = 1
-
                 # Use zoom for linear interpolation to scale mask up to the image size
                 zoomed_mask = zoom(mask, (scale_y, scale_x), order=1)  # Linear interpolation
-                
                 # Fill the img_array based on zoomed_mask positions
                 img_array[zoomed_mask > 0.5] = color  # Assign color where zoomed mask is present
-
 
 def update_segmentation_matrix(segmentation_matrix, last_pos, pos, brush_size, background_image, current_slice_index, brush_color_value):
     """
     Update the segmentation matrix by drawing a line between points.
-    :param segmentation_matrix: 3D numpy array to update with segmentation data
+    :param segmentation_matrix: Numpy array to update with segmentation
     :param last_pos: QPoint for the starting point
     :param pos: QPoint for the ending point
     :param brush_size: Brush size in pixels
